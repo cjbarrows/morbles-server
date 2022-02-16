@@ -104,6 +104,18 @@ func getPlayerByID(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 }
 
+func getAuthenticatedPlayer(c *gin.Context) {
+	if user, ok := getUser(c); ok {
+		for _, pl := range players {
+			if pl.Name == user {
+				c.JSON(http.StatusOK, pl)
+				return
+			}
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
+}
+
 func putPlayerById(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 
@@ -208,6 +220,7 @@ func main() {
 		private.GET("/levels/ids", getLevelsIDs)
 		private.GET("/levels/:id", getLevelByID)
 
+		private.GET("/player", getAuthenticatedPlayer)
 		private.GET("/player/:id", getPlayerByID)
 		private.PUT("/player/:id", putPlayerById)
 	}
