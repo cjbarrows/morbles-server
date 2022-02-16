@@ -11,10 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const (
-	userkey = "user"
-)
-
 type level struct {
 	ID            uint16
 	Name          string
@@ -66,6 +62,17 @@ func getLevelIDs(theLevels []level) []uint16 {
 	return ids
 }
 
+func getBlankLevels() []levelStatus {
+	var blankLevels []levelStatus
+
+	for _, level := range levels {
+		ls := levelStatus{level.ID, 0, false}
+		blankLevels = append(blankLevels, ls)
+	}
+
+	return blankLevels
+}
+
 func getLevelsIDs(c *gin.Context) {
 	ids := getLevelIDs(levels)
 
@@ -102,6 +109,23 @@ func getPlayerByID(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
+}
+
+func getNextId() uint16 {
+	var nextid uint16 = 0
+	for _, pl := range players {
+		if pl.ID > nextid {
+			nextid = pl.ID
+		}
+	}
+	return nextid + 1
+}
+
+func addPlayer(name string) {
+	nextid := getNextId()
+	blankLevels := getBlankLevels()
+	newPlayer := player{nextid, name, blankLevels}
+	players = append(players, newPlayer)
 }
 
 func getAuthenticatedPlayer(c *gin.Context) {
@@ -150,7 +174,7 @@ func login(c *gin.Context) {
 
 	for _, pl := range players {
 		if username == pl.Name && password == "2020" {
-			session.Set(userkey, username) // In real world usage you'd set this to the users ID
+			session.Set("user", username)
 			if err := session.Save(); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 				return
@@ -160,13 +184,26 @@ func login(c *gin.Context) {
 		}
 	}
 
+	if password == "2020" {
+		addPlayer(username)
+		session.Set("user", username)
+		if err := session.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
+		return
+	}
+
 	c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
 }
 
 func getUser(c *gin.Context) (string, bool) {
 	session := sessions.Default(c)
-	user := session.Get(userkey)
-	return user.(string), true
+	if user := session.Get("user"); user != nil {
+		return user.(string), true
+	}
+	return "", false
 }
 
 func logout(c *gin.Context) {
@@ -175,7 +212,7 @@ func logout(c *gin.Context) {
 		return
 	}
 	session := sessions.Default(c)
-	session.Delete(userkey)
+	session.Delete("user")
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 		return
@@ -184,8 +221,11 @@ func logout(c *gin.Context) {
 }
 
 func me(c *gin.Context) {
-	user, _ := getUser(c)
-	c.JSON(http.StatusOK, gin.H{"user": user})
+	if user, ok := getUser(c); ok {
+		c.JSON(http.StatusOK, gin.H{"user": user})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read user"})
 }
 
 func status(c *gin.Context) {
@@ -194,7 +234,7 @@ func status(c *gin.Context) {
 
 func AuthRequired(c *gin.Context) {
 	session := sessions.Default(c)
-	user := session.Get(userkey)
+	user := session.Get("user")
 	if user == nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
@@ -202,17 +242,43 @@ func AuthRequired(c *gin.Context) {
 	c.Next()
 }
 
+func incr(c *gin.Context) {
+	session := sessions.Default(c)
+	var count int
+	v := session.Get("count")
+	if v == nil {
+		count = 0
+	} else {
+		count = v.(int)
+		count++
+	}
+	session.Set("count", count)
+	session.Save()
+	c.JSON(200, gin.H{"count": count})
+}
+
 func main() {
 	router := gin.Default()
-	router.Use(cors.Default())
-	router.Use(sessions.Sessions("mysession", sessions.NewCookieStore([]byte("secret"))))
+
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:4200"}
+	config.AllowCredentials = true
+	config.AllowMethods = []string{"GET", "POST"}
+	router.Use(cors.New(config))
+
+	store := sessions.NewCookieStore([]byte("secret"))
+	router.Use(sessions.Sessions("thesession", store))
 
 	router.POST("/login", login)
-	router.GET("/logout", logout)
+	router.GET("/incr", incr)
+
+	router.GET("/alsome", me)
 
 	private := router.Group("/api")
 	private.Use(AuthRequired)
 	{
+		private.GET("/logout", logout)
+
 		private.GET("/me", me)
 		private.GET("/status", status)
 
@@ -220,7 +286,7 @@ func main() {
 		private.GET("/levels/ids", getLevelsIDs)
 		private.GET("/levels/:id", getLevelByID)
 
-		private.GET("/player", getAuthenticatedPlayer)
+		private.GET("/player1", getAuthenticatedPlayer)
 		private.GET("/player/:id", getPlayerByID)
 		private.PUT("/player/:id", putPlayerById)
 	}
