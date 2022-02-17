@@ -242,21 +242,6 @@ func AuthRequired(c *gin.Context) {
 	c.Next()
 }
 
-func incr(c *gin.Context) {
-	session := sessions.Default(c)
-	var count int
-	v := session.Get("count")
-	if v == nil {
-		count = 0
-	} else {
-		count = v.(int)
-		count++
-	}
-	session.Set("count", count)
-	session.Save()
-	c.JSON(200, gin.H{"count": count})
-}
-
 func main() {
 	router := gin.Default()
 
@@ -270,9 +255,6 @@ func main() {
 	router.Use(sessions.Sessions("thesession", store))
 
 	router.POST("/login", login)
-	router.GET("/incr", incr)
-
-	router.GET("/alsome", me)
 
 	private := router.Group("/api")
 	private.Use(AuthRequired)
@@ -286,7 +268,7 @@ func main() {
 		private.GET("/levels/ids", getLevelsIDs)
 		private.GET("/levels/:id", getLevelByID)
 
-		private.GET("/player1", getAuthenticatedPlayer)
+		private.GET("/player", getAuthenticatedPlayer)
 		private.GET("/player/:id", getPlayerByID)
 		private.PUT("/player/:id", putPlayerById)
 	}
