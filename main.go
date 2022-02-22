@@ -25,6 +25,7 @@ type level struct {
 type levelStatus struct {
 	LevelID   uint16
 	Attempts  uint16
+	Failures  uint16
 	Completed bool
 }
 
@@ -41,15 +42,15 @@ var levels = []level{
 	{ID: 4, Name: "No Left Turn", Hint: "If a ball goes out of bounds, it's lost forever.", Rows: 2, Columns: 2, StartingBalls: "RG", EndingBalls: "RG", MapData: "  " + "L "},
 }
 
-var levelStatuses = []levelStatus{
-	{LevelID: 1, Attempts: 1, Completed: true},
-	{LevelID: 2, Attempts: 0, Completed: false},
-	{LevelID: 3, Attempts: 0, Completed: false},
-	{LevelID: 4, Attempts: 2, Completed: false},
+var mockLevelStatuses = []levelStatus{
+	{LevelID: 1, Attempts: 1, Failures: 0, Completed: true},
+	{LevelID: 2, Attempts: 0, Failures: 0, Completed: false},
+	{LevelID: 3, Attempts: 0, Failures: 0, Completed: false},
+	{LevelID: 4, Attempts: 2, Failures: 2, Completed: false},
 }
 
 var players = []player{
-	{ID: 1, Name: "Test Player", LevelStatuses: levelStatuses},
+	{ID: 1, Name: "Test Player", LevelStatuses: mockLevelStatuses},
 }
 
 func getLevelIDs(theLevels []level) []uint16 {
@@ -66,7 +67,7 @@ func getBlankLevels() []levelStatus {
 	var blankLevels []levelStatus
 
 	for _, level := range levels {
-		ls := levelStatus{level.ID, 0, false}
+		ls := levelStatus{level.ID, 0, 0, false}
 		blankLevels = append(blankLevels, ls)
 	}
 
@@ -248,7 +249,7 @@ func main() {
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"http://localhost:4200"}
 	config.AllowCredentials = true
-	config.AllowMethods = []string{"GET", "POST"}
+	config.AllowMethods = []string{"GET", "POST", "PUT"}
 	router.Use(cors.New(config))
 
 	store := sessions.NewCookieStore([]byte("secret"))
