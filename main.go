@@ -112,18 +112,28 @@ func getPlayerByID(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 }
 
-func getNextId() uint16 {
+func getNextPlayerId(slice []player) uint16 {
 	var nextid uint16 = 0
-	for _, pl := range players {
-		if pl.ID > nextid {
-			nextid = pl.ID
+	for _, item := range slice {
+		if item.ID > nextid {
+			nextid = item.ID
+		}
+	}
+	return nextid + 1
+}
+
+func getNextLevelId(slice []level) uint16 {
+	var nextid uint16 = 0
+	for _, item := range slice {
+		if item.ID > nextid {
+			nextid = item.ID
 		}
 	}
 	return nextid + 1
 }
 
 func addPlayer(name string) {
-	nextid := getNextId()
+	nextid := getNextPlayerId(players)
 	blankLevels := getBlankLevels()
 	newPlayer := player{nextid, name, blankLevels}
 	players = append(players, newPlayer)
@@ -161,6 +171,42 @@ func putPlayerById(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
+}
+
+func postLevel(c *gin.Context) {
+	var newLevel level
+	if err := c.BindJSON(&newLevel); err == nil {
+		newLevel.ID = getNextLevelId(levels)
+		fmt.Println("new level", newLevel)
+		levels = append(levels, newLevel)
+		c.JSON(http.StatusOK, newLevel)
+		return
+	} else {
+		// BindJSON already sets a BadRequest
+		return
+	}
+}
+
+func putLevelByID(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+
+	if err == nil {
+		for key, lvl := range levels {
+			if lvl.ID == uint16(id) {
+				var updatedLevel level
+				if err := c.BindJSON(&updatedLevel); err == nil {
+					fmt.Println("updated level", updatedLevel)
+					levels[key] = updatedLevel
+					c.JSON(http.StatusOK, updatedLevel)
+					return
+				} else {
+					c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error updating level %s", err)})
+					return
+				}
+			}
+		}
+	}
+	c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 }
 
 func login(c *gin.Context) {
@@ -268,6 +314,8 @@ func main() {
 		private.GET("/levels", getLevels)
 		private.GET("/levels/ids", getLevelsIDs)
 		private.GET("/levels/:id", getLevelByID)
+		private.POST("/levels", postLevel)
+		private.PUT("/levels/:id", putLevelByID)
 
 		private.GET("/player", getAuthenticatedPlayer)
 		private.GET("/player/:id", getPlayerByID)
