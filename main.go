@@ -32,6 +32,7 @@ type levelStatus struct {
 type player struct {
 	ID            uint16
 	Name          string
+	Admin         bool
 	LevelStatuses []levelStatus
 }
 
@@ -50,7 +51,7 @@ var mockLevelStatuses = []levelStatus{
 }
 
 var players = []player{
-	{ID: 1, Name: "Test Player", LevelStatuses: mockLevelStatuses},
+	{ID: 1, Name: "Test Player", Admin: false, LevelStatuses: mockLevelStatuses},
 }
 
 func getLevelIDs(theLevels []level) []uint16 {
@@ -135,7 +136,7 @@ func getNextLevelId(slice []level) uint16 {
 func addPlayer(name string) {
 	nextid := getNextPlayerId(players)
 	blankLevels := getBlankLevels()
-	newPlayer := player{nextid, name, blankLevels}
+	newPlayer := player{nextid, name, name == "charlie.barrows@gmail.com", blankLevels}
 	players = append(players, newPlayer)
 }
 
