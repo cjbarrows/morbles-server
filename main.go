@@ -309,7 +309,7 @@ func main() {
 	router := gin.Default()
 
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"http://localhost:4200"}
+	config.AllowOrigins = []string{"http://localhost:4200", "http://morbles.herokuapp.com"}
 	config.AllowCredentials = true
 	config.AllowMethods = []string{"GET", "POST", "PUT"}
 	router.Use(cors.New(config))
