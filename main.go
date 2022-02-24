@@ -8,7 +8,8 @@ import (
 	"strings"
 
 	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/contrib/sessions"
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 )
 
@@ -315,8 +316,8 @@ func main() {
 	config.AllowMethods = []string{"GET", "POST", "PUT"}
 	router.Use(cors.New(config))
 
-	store := sessions.NewCookieStore([]byte("secret"))
-	store.Options(sessions.Options{HttpOnly: false})
+	store := cookie.NewStore([]byte("secret"))
+	store.Options(sessions.Options{SameSite: http.SameSiteNoneMode})
 	router.Use(sessions.Sessions("thesession", store))
 
 	router.POST("/login", login)
