@@ -338,5 +338,5 @@ func main() {
 		private.PUT("/player/:id", putPlayerById)
 	}
 
-	router.Run("localhost:8080")
+	router.Run(":8080")
 }
