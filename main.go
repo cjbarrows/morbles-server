@@ -317,7 +317,7 @@ func main() {
 	router.Use(cors.New(config))
 
 	store := cookie.NewStore([]byte("secret"))
-	store.Options(sessions.Options{SameSite: http.SameSiteNoneMode})
+	store.Options(sessions.Options{Secure: true, SameSite: http.SameSiteNoneMode})
 	router.Use(sessions.Sessions("thesession", store))
 
 	router.POST("/login", login)
