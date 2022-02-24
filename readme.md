@@ -11,3 +11,7 @@
 [x] add new user to player "table"
 [x] clean up test code
 [x] track failures
+
+## ENVIRONMENT VARIABLES
+
+- CLIENT_DOMAIN   ".herokuapp.com" or ""
