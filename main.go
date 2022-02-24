@@ -140,10 +140,25 @@ func addPlayer(name string) {
 	players = append(players, newPlayer)
 }
 
+func (pl *player) refreshWithLevels(levels []level) {
+	for _, lv := range levels {
+		found := false
+		for _, lvs := range pl.LevelStatuses {
+			if lv.ID == lvs.LevelID {
+				found = true
+			}
+		}
+		if !found {
+			pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{lv.ID, 0, 0, false})
+		}
+	}
+}
+
 func getAuthenticatedPlayer(c *gin.Context) {
 	if user, ok := getUser(c); ok {
 		for _, pl := range players {
 			if pl.Name == user {
+				pl.refreshWithLevels(levels)
 				c.JSON(http.StatusOK, pl)
 				return
 			}
