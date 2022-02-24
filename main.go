@@ -339,7 +339,7 @@ func main() {
 		private.PUT("/player/:id", putPlayerById)
 	}
 
-	port := os.Getenv("PORT")
+	port := os.Getenv("API_PORT")
 	if port == "" {
 		port = "8080"
 	}
