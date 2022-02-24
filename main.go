@@ -338,5 +338,5 @@ func main() {
 		private.PUT("/player/:id", putPlayerById)
 	}
 
-	router.Run(":8080")
+	router.Run("morbles-server.herokuapp.com:8080")
 }
