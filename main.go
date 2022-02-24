@@ -324,12 +324,11 @@ func main() {
 	router.Use(sessions.Sessions("thesession", store))
 
 	router.POST("/login", login)
+	router.GET("/logout", logout)
 
 	private := router.Group("/api")
 	private.Use(AuthRequired)
 	{
-		private.GET("/logout", logout)
-
 		private.GET("/me", me)
 		private.GET("/status", status)
 
