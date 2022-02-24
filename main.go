@@ -318,7 +318,7 @@ func main() {
 
 	store := cookie.NewStore([]byte("secret"))
 	if domain := os.Getenv("CLIENT_DOMAIN"); domain != "" {
-		fmt.PrintLn("Domain is " + domain)
+		fmt.Println("Domain is " + domain)
 		store.Options(sessions.Options{Domain: domain})
 	}
 	router.Use(sessions.Sessions("thesession", store))
