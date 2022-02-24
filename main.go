@@ -317,7 +317,7 @@ func main() {
 	router.Use(cors.New(config))
 
 	store := cookie.NewStore([]byte("secret"))
-	if domain := os.Getenv("CLIENT_DOMAIN") != "" {
+	if domain := os.Getenv("CLIENT_DOMAIN"); domain != "" {
 		store.Options(sessions.Options{Domain: domain})
 	}
 	router.Use(sessions.Sessions("thesession", store))
