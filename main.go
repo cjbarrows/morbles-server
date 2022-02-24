@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -338,5 +339,7 @@ func main() {
 		private.PUT("/player/:id", putPlayerById)
 	}
 
-	router.Run()
+	port := os.Getenv("PORT")
+
+	router.Run(":" + port)
 }
