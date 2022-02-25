@@ -2,7 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -40,23 +42,7 @@ type player struct {
 	LevelStatuses []levelStatus
 }
 
-var levels = []level{
-	{ID: 1, Name: "Nothing Doin'", Hint: "Ball drop.", Rows: 2, Columns: 1, StartingBalls: "R", EndingBalls: "R", MapData: " " + " "},
-	{ID: 2, Name: "Two Wide", Hint: "Pick a chute.", Rows: 2, Columns: 2, StartingBalls: "RG", EndingBalls: "RG", MapData: "  " + "  "},
-	{ID: 3, Name: "Bumper OK", Hint: "Bumpers bump one left or one right.", Rows: 2, Columns: 2, StartingBalls: "RG", EndingBalls: "RG", MapData: "  " + "R "},
-	{ID: 4, Name: "No Left Turn", Hint: "If a ball goes out of bounds, it's lost forever.", Rows: 2, Columns: 2, StartingBalls: "RG", EndingBalls: "RG", MapData: "  " + "L "},
-}
-
-var mockLevelStatuses = []levelStatus{
-	{LevelID: 1, Attempts: 1, Failures: 0, Completed: true},
-	{LevelID: 2, Attempts: 0, Failures: 0, Completed: false},
-	{LevelID: 3, Attempts: 0, Failures: 0, Completed: false},
-	{LevelID: 4, Attempts: 2, Failures: 2, Completed: false},
-}
-
-var players = []player{
-	{ID: 1, Name: "Test Player", Admin: false, LevelStatuses: mockLevelStatuses},
-}
+var levels = []level{}
 
 func getLevelIDs(theLevels []level) []uint16 {
 	var ids []uint16
@@ -66,17 +52,6 @@ func getLevelIDs(theLevels []level) []uint16 {
 	}
 
 	return ids
-}
-
-func getBlankLevels() []levelStatus {
-	var blankLevels []levelStatus
-
-	for _, level := range levels {
-		ls := levelStatus{level.ID, 0, 0, false}
-		blankLevels = append(blankLevels, ls)
-	}
-
-	return blankLevels
 }
 
 func getLevelsIDs(c *gin.Context) {
@@ -103,28 +78,58 @@ func getLevels(c *gin.Context) {
 	c.JSON(http.StatusOK, levels)
 }
 
-func getPlayerByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func getPlayerByID(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
 
-	if err == nil {
-		for _, pl := range players {
-			if pl.ID == uint16(id) {
-				c.JSON(http.StatusOK, pl)
+		if err == nil {
+			rows, err := db.Query("SELECT id, name, admin FROM players WHERE id = $1", id)
+			if err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error reading player]: %q", err))
+				return
+			}
+
+			defer rows.Close()
+			ok := rows.Next()
+
+			if ok {
+				var thisPlayer player
+				if err := rows.Scan(&thisPlayer.ID, &thisPlayer.Name, &thisPlayer.Admin); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("Error scanning player: %q", err))
+					return
+				}
+				if err := thisPlayer.refreshWithLevels(db, levels); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("Error reading level status: %q", err))
+					return
+				}
+				c.JSON(http.StatusOK, thisPlayer)
 				return
 			}
 		}
+		c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 }
 
-func getNextPlayerId(slice []player) uint16 {
-	var nextid uint16 = 0
-	for _, item := range slice {
-		if item.ID > nextid {
-			nextid = item.ID
-		}
+func getNextPlayerId(db *sql.DB) (uint16, error) {
+	rows, err := db.Query("SELECT MAX(id) FROM players")
+	if err != nil {
+		return 0, err
 	}
-	return nextid + 1
+
+	defer rows.Close()
+	ok := rows.Next()
+
+	if ok {
+		var maxId uint16
+		if err := rows.Scan(&maxId); err != nil {
+			return 0, err
+		}
+		return maxId + 1, nil
+	}
+	return 0, errors.New("error getting next player id")
 }
 
 func getNextLevelId(slice []level) uint16 {
@@ -137,11 +142,17 @@ func getNextLevelId(slice []level) uint16 {
 	return nextid + 1
 }
 
-func addPlayer(name string) {
-	nextid := getNextPlayerId(players)
-	blankLevels := getBlankLevels()
-	newPlayer := player{nextid, name, name == "charlie.barrows@gmail.com", blankLevels}
-	players = append(players, newPlayer)
+func addPlayer(db *sql.DB, name string) error {
+	if nextid, err := getNextPlayerId(db); err == nil {
+		if _, err := db.Exec("INSERT INTO players(id, name, admin) VALUES ($1, $2, false)", nextid, name); err != nil {
+			log.Println("Error inserting new player ", err)
+		} else {
+			return err
+		}
+	} else {
+		return err
+	}
+	return nil
 }
 
 func populateLevels(db *sql.DB) {
@@ -221,46 +232,54 @@ func getAuthenticatedPlayer(db *sql.DB) gin.HandlerFunc {
 			}
 
 			defer rows.Close()
-			rows.Next()
+			ok := rows.Next()
 
-			var thisPlayer player
-			if err := rows.Scan(&thisPlayer.ID, &thisPlayer.Name, &thisPlayer.Admin); err != nil {
-				c.String(http.StatusInternalServerError,
-					fmt.Sprintf("Error scanning player: %q", err))
+			if ok {
+				var thisPlayer player
+				if err := rows.Scan(&thisPlayer.ID, &thisPlayer.Name, &thisPlayer.Admin); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("Error scanning player: %q", err))
+					return
+				}
+				if err := thisPlayer.refreshWithLevels(db, levels); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("Error reading level status: %q", err))
+					return
+				}
+				c.JSON(http.StatusOK, thisPlayer)
 				return
 			}
-			if err := thisPlayer.refreshWithLevels(db, levels); err != nil {
-				c.String(http.StatusInternalServerError,
-					fmt.Sprintf("Error reading level status: %q", err))
-				return
-			}
-			c.JSON(http.StatusOK, thisPlayer)
-			return
 		}
 		c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 	}
 }
 
-func putPlayerById(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
-
-	if err == nil {
-		for key, pl := range players {
-			if pl.ID == uint16(id) {
-				var updatedPlayer player
-				if err := c.BindJSON(&updatedPlayer); err == nil {
-					fmt.Println("updated player", updatedPlayer)
-					players[key] = updatedPlayer
-					c.JSON(http.StatusOK, updatedPlayer)
-					return
-				} else {
+func putPlayerById(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var updatedPlayer player
+		if err := c.BindJSON(&updatedPlayer); err == nil {
+			for _, playerLevel := range updatedPlayer.LevelStatuses {
+				result, err := db.Exec("UPDATE level_status SET attempts = $1, failures = $2, completed = $3 WHERE player_id = $4 AND level_id = $5",
+					playerLevel.Attempts, playerLevel.Failures, playerLevel.Completed, updatedPlayer.ID, playerLevel.LevelID)
+				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error updating player %s", err)})
 					return
 				}
+				if count, err := result.RowsAffected(); err == nil && count == 0 {
+					_, err := db.Exec("INSERT INTO level_status(player_id, level_id, attempts, failures, completed) VALUES ($1, $2, $3, $4, $5)",
+						updatedPlayer.ID, playerLevel.LevelID, playerLevel.Attempts, playerLevel.Failures, playerLevel.Completed)
+					if err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error inserting player level status %s", err)})
+						return
+					}
+				}
 			}
+			fmt.Println("updated player", updatedPlayer)
+			c.JSON(http.StatusOK, updatedPlayer)
+			return
 		}
+		c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 }
 
 func postLevel(c *gin.Context) {
@@ -299,40 +318,58 @@ func putLevelByID(c *gin.Context) {
 	c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 }
 
-func login(c *gin.Context) {
-	session := sessions.Default(c)
-	username := c.PostForm("username")
-	password := c.PostForm("password")
+func login(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		session := sessions.Default(c)
+		username := c.PostForm("username")
+		password := c.PostForm("password")
 
-	if strings.Trim(username, " ") == "" || strings.Trim(password, " ") == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Parameters can't be empty"})
-		return
-	}
+		if strings.Trim(username, " ") == "" || strings.Trim(password, " ") == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Parameters can't be empty"})
+			return
+		}
 
-	for _, pl := range players {
-		if username == pl.Name && password == "2020" {
-			session.Set("user", username)
-			if err := session.Save(); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+		if password == "2022" {
+			rows, err := db.Query("SELECT id FROM players WHERE name = $1", username)
+			if err == nil {
+				defer rows.Close()
+				ok := rows.Next()
+
+				if ok {
+					var thisPlayer player
+					if err := rows.Scan(&thisPlayer.ID); err != nil {
+						log.Println("Error scanning player ", err)
+						c.String(http.StatusInternalServerError,
+							fmt.Sprintf("Error scanning player: %q", err))
+						return
+					}
+
+					session.Set("user", username)
+					if err := session.Save(); err != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+						return
+					}
+					c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
+					return
+				} else {
+					if err := addPlayer(db, username); err == nil {
+						session.Set("user", username)
+						if err := session.Save(); err != nil {
+							c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+							return
+						}
+						c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
+						return
+					}
+				}
+			} else {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Error reading player"})
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
-			return
 		}
-	}
 
-	if password == "2020" {
-		addPlayer(username)
-		session.Set("user", username)
-		if err := session.Save(); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
-		return
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
 	}
-
-	c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
 }
 
 func getUser(c *gin.Context) (string, bool) {
@@ -392,9 +429,6 @@ func AuthRequired(c *gin.Context) {
 
 func main() {
 	databaseUrl := os.Getenv("DATABASE_URL")
-	if databaseUrl == "" {
-		databaseUrl = "postgres://kzkuqdoinwkkue:b1609f211aa4810c9db5b8a1d81584eb76eafd7239b0a7d0b3430ca102c9cbbd@ec2-35-153-35-94.compute-1.amazonaws.com:5432/dfpscnfslf8hkg"
-	}
 
 	db, err := sql.Open("postgres", databaseUrl)
 	if err != nil {
@@ -413,12 +447,12 @@ func main() {
 
 	store := cookie.NewStore([]byte("secret"))
 	if domain := os.Getenv("CLIENT_DOMAIN"); domain != "" {
-		fmt.Println("Domain is " + domain)
+		log.Println("Domain is " + domain)
 		store.Options(sessions.Options{Domain: domain})
 	}
 	router.Use(sessions.Sessions("thesession", store))
 
-	router.POST("/login", login)
+	router.POST("/login", login(db))
 
 	private := router.Group("/api")
 	private.Use(AuthRequired)
@@ -436,8 +470,8 @@ func main() {
 		private.PUT("/levels/:id", putLevelByID)
 
 		private.GET("/player", getAuthenticatedPlayer(db))
-		private.GET("/player/:id", getPlayerByID)
-		private.PUT("/player/:id", putPlayerById)
+		private.GET("/player/:id", getPlayerByID(db))
+		private.PUT("/player/:id", putPlayerById(db))
 	}
 
 	port := os.Getenv("PORT")

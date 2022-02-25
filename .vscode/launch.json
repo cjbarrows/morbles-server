@@ -1,0 +1,18 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Package",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${fileDirname}",
+      "env": {
+        "DATABASE_URL": "postgres://kzkuqdoinwkkue:b1609f211aa4810c9db5b8a1d81584eb76eafd7239b0a7d0b3430ca102c9cbbd@ec2-35-153-35-94.compute-1.amazonaws.com:5432/dfpscnfslf8hkg"
+      }
+    }
+  ]
+}
