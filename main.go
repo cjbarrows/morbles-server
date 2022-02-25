@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 )
 
 type level struct {
@@ -142,9 +144,59 @@ func addPlayer(name string) {
 	players = append(players, newPlayer)
 }
 
-func (pl *player) refreshWithLevels(levels []level) {
+func populateLevels(db *sql.DB) {
+	var newLevels []level
+
+	rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map from levels")
+	if err != nil {
+		fmt.Println("Error loading levels ", err)
+		return
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uint16
+		var name string
+		var hint string
+		var numRows uint8
+		var numColumns uint8
+		var startingBalls string
+		var endingBalls string
+		var mapData string
+
+		if err := rows.Scan(&id, &name, &hint, &numRows, &numColumns, &startingBalls, &endingBalls, &mapData); err != nil {
+			fmt.Println("Error reading level ", err)
+			return
+		}
+		newLevels = append(newLevels, level{id, name, hint, numRows, numColumns, startingBalls, endingBalls, mapData})
+	}
+
+	levels = newLevels
+}
+
+func (pl *player) refreshWithLevels(db *sql.DB, levels []level) error {
+	rows, err := db.Query("SELECT level_id, attempts, failures, completed FROM level_status WHERE player_id = $1", pl.ID)
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var levelId uint16
+		var attempts uint16
+		var failures uint16
+		var completed bool
+		if err := rows.Scan(&levelId, &attempts, &failures, &completed); err != nil {
+			return err
+		}
+		pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{levelId, attempts, failures, completed})
+	}
+
 	for _, lv := range levels {
 		found := false
+
 		for _, lvs := range pl.LevelStatuses {
 			if lv.ID == lvs.LevelID {
 				found = true
@@ -154,19 +206,39 @@ func (pl *player) refreshWithLevels(levels []level) {
 			pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{lv.ID, 0, 0, false})
 		}
 	}
+
+	return nil
 }
 
-func getAuthenticatedPlayer(c *gin.Context) {
-	if user, ok := getUser(c); ok {
-		for _, pl := range players {
-			if pl.Name == user {
-				pl.refreshWithLevels(levels)
-				c.JSON(http.StatusOK, pl)
+func getAuthenticatedPlayer(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if user, ok := getUser(c); ok {
+			rows, err := db.Query("SELECT id, name, admin FROM players WHERE name = $1", user)
+			if err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error reading player]: %q", err))
 				return
 			}
+
+			defer rows.Close()
+			rows.Next()
+
+			var thisPlayer player
+			if err := rows.Scan(&thisPlayer.ID, &thisPlayer.Name, &thisPlayer.Admin); err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error scanning player: %q", err))
+				return
+			}
+			if err := thisPlayer.refreshWithLevels(db, levels); err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error reading level status: %q", err))
+				return
+			}
+			c.JSON(http.StatusOK, thisPlayer)
+			return
 		}
+		c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "player not found"})
 }
 
 func putPlayerById(c *gin.Context) {
@@ -319,6 +391,18 @@ func AuthRequired(c *gin.Context) {
 }
 
 func main() {
+	databaseUrl := os.Getenv("DATABASE_URL")
+	if databaseUrl == "" {
+		databaseUrl = "postgres://kzkuqdoinwkkue:b1609f211aa4810c9db5b8a1d81584eb76eafd7239b0a7d0b3430ca102c9cbbd@ec2-35-153-35-94.compute-1.amazonaws.com:5432/dfpscnfslf8hkg"
+	}
+
+	db, err := sql.Open("postgres", databaseUrl)
+	if err != nil {
+		fmt.Println("Error opening database: ", err)
+	}
+
+	populateLevels(db)
+
 	router := gin.Default()
 
 	config := cors.DefaultConfig()
@@ -351,7 +435,7 @@ func main() {
 		private.POST("/levels", postLevel)
 		private.PUT("/levels/:id", putLevelByID)
 
-		private.GET("/player", getAuthenticatedPlayer)
+		private.GET("/player", getAuthenticatedPlayer(db))
 		private.GET("/player/:id", getPlayerByID)
 		private.PUT("/player/:id", putPlayerById)
 	}
