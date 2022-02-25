@@ -294,6 +294,16 @@ func me(c *gin.Context) {
 	c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read user"})
 }
 
+func setMe(c *gin.Context) {
+	session := sessions.Default(c)
+	session.Set("user", "")
+	if err := session.Save(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Successfully set me"})
+}
+
 func status(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "You are logged in"})
 }
@@ -332,6 +342,7 @@ func main() {
 		private.GET("/logout", logout)
 
 		private.GET("/me", me)
+		private.GET("/setme", setMe)
 		private.GET("/status", status)
 
 		private.GET("/levels", getLevels)
