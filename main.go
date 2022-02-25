@@ -296,7 +296,7 @@ func me(c *gin.Context) {
 
 func setMe(c *gin.Context) {
 	session := sessions.Default(c)
-	session.Set("user", "")
+	session.Set("user", "a")
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 		return
