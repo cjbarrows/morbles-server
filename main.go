@@ -278,7 +278,7 @@ func logout(c *gin.Context) {
 	}
 	session := sessions.Default(c)
 	// session.Delete("user")
-	session.Clear()
+	session.Set("user", "")
 	if err := session.Save(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
 		return
