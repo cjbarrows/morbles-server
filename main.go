@@ -44,38 +44,90 @@ type player struct {
 
 var levels = []level{}
 
-func getLevelIDs(theLevels []level) []uint16 {
-	var ids []uint16
+func getLevelsIDs(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rows, err := db.Query("SELECT id FROM levels")
+		if err != nil {
+			c.String(http.StatusInternalServerError,
+				fmt.Sprintf("Error reading level ids]: %q", err))
+			return
+		}
 
-	for _, level := range theLevels {
-		ids = append(ids, level.ID)
+		defer rows.Close()
+
+		var levelsIds []uint16
+
+		for rows.Next() {
+			var levelId uint16
+			if err := rows.Scan(&levelId); err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error reading level ids]: %q", err))
+				return
+			}
+			levelsIds = append(levelsIds, levelId)
+		}
+
+		c.JSON(http.StatusOK, levelsIds)
 	}
-
-	return ids
 }
 
-func getLevelsIDs(c *gin.Context) {
-	ids := getLevelIDs(levels)
+func getLevelByID(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
 
-	c.JSON(http.StatusOK, ids)
-}
+		if err == nil {
 
-func getLevelByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+			rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels WHERE id = $1", id)
+			if err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error reading levels by id]: %q", err))
+				return
+			}
 
-	if err == nil {
-		for _, level := range levels {
-			if level.ID == uint16(id) {
-				c.IndentedJSON(http.StatusOK, level)
+			defer rows.Close()
+			ok := rows.Next()
+
+			if ok {
+				var lv level
+				if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("Error scanning level: %q", err))
+					return
+				}
+
+				c.JSON(http.StatusOK, lv)
 				return
 			}
 		}
+		c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 }
 
-func getLevels(c *gin.Context) {
-	c.JSON(http.StatusOK, levels)
+func getLevels(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels")
+		if err != nil {
+			c.String(http.StatusInternalServerError,
+				fmt.Sprintf("Error reading levels]: %q", err))
+			return
+		}
+
+		defer rows.Close()
+
+		var allLevels []level
+
+		for rows.Next() {
+			var lv level
+			if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData); err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("Error scanning level: %q", err))
+				return
+			}
+			allLevels = append(allLevels, lv)
+		}
+
+		c.JSON(http.StatusOK, allLevels)
+	}
 }
 
 func getPlayerByID(db *sql.DB) gin.HandlerFunc {
@@ -282,40 +334,55 @@ func putPlayerById(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-func postLevel(c *gin.Context) {
-	var newLevel level
-	if err := c.BindJSON(&newLevel); err == nil {
-		newLevel.ID = getNextLevelId(levels)
-		fmt.Println("new level", newLevel)
-		levels = append(levels, newLevel)
-		c.JSON(http.StatusOK, newLevel)
-		return
-	} else {
-		// BindJSON already sets a BadRequest
-		return
+func postLevel(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var newLevel level
+		if err := c.BindJSON(&newLevel); err == nil {
+			newLevel.ID = getNextLevelId(levels)
+
+			if _, err := db.Exec("INSERT INTO levels(id, name, hint, rows, columns, starting_balls, ending_balls, map) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+				newLevel.ID, newLevel.Name, newLevel.Hint, newLevel.Rows, newLevel.Columns, newLevel.StartingBalls, newLevel.EndingBalls, newLevel.MapData); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error inserting level %s", err)})
+				return
+			}
+
+			levels = append(levels, newLevel)
+
+			c.JSON(http.StatusOK, newLevel)
+			return
+		} else {
+			// BindJSON already sets a BadRequest
+			return
+		}
 	}
 }
 
-func putLevelByID(c *gin.Context) {
-	id, err := strconv.Atoi(c.Param("id"))
+func putLevelByID(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
 
-	if err == nil {
-		for key, lvl := range levels {
-			if lvl.ID == uint16(id) {
-				var updatedLevel level
-				if err := c.BindJSON(&updatedLevel); err == nil {
-					fmt.Println("updated level", updatedLevel)
-					levels[key] = updatedLevel
-					c.JSON(http.StatusOK, updatedLevel)
-					return
-				} else {
+		if err == nil {
+			var lv level
+			if err := c.BindJSON(&lv); err == nil {
+				_, err := db.Exec("UPDATE levels SET (name, hint, rows, columns, starting_balls, ending_balls, map) = ($2, $3, $4, $5, $6, $7, $8) WHERE id = $1",
+					lv.ID, lv.Name, lv.Hint, lv.Rows, lv.Columns, lv.StartingBalls, lv.EndingBalls, lv.MapData)
+				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error updating level %s", err)})
 					return
 				}
+				for key, lvl := range levels {
+					if lvl.ID == uint16(id) {
+						levels[key] = lv
+						c.JSON(http.StatusOK, lv)
+						return
+					}
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error updating level %s", err)})
+				return
 			}
 		}
+		c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "level not found"})
 }
 
 func login(db *sql.DB) gin.HandlerFunc {
@@ -463,11 +530,11 @@ func main() {
 		private.GET("/setme", setMe)
 		private.GET("/status", status)
 
-		private.GET("/levels", getLevels)
-		private.GET("/levels/ids", getLevelsIDs)
-		private.GET("/levels/:id", getLevelByID)
-		private.POST("/levels", postLevel)
-		private.PUT("/levels/:id", putLevelByID)
+		private.GET("/levels", getLevels(db))
+		private.GET("/levels/ids", getLevelsIDs(db))
+		private.GET("/levels/:id", getLevelByID(db))
+		private.POST("/levels", postLevel(db))
+		private.PUT("/levels/:id", putLevelByID(db))
 
 		private.GET("/player", getAuthenticatedPlayer(db))
 		private.GET("/player/:id", getPlayerByID(db))
