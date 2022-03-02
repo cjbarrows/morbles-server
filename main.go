@@ -46,10 +46,10 @@ var levels = []level{}
 
 func getLevelsIDs(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := db.Query("SELECT id FROM levels")
+		rows, err := db.Query("SELECT id FROM levels ORDER BY id")
 		if err != nil {
 			c.String(http.StatusInternalServerError,
-				fmt.Sprintf("Error reading level ids]: %q", err))
+				fmt.Sprintf("[Error reading level ids]: %q", err))
 			return
 		}
 
@@ -61,7 +61,7 @@ func getLevelsIDs(db *sql.DB) gin.HandlerFunc {
 			var levelId uint16
 			if err := rows.Scan(&levelId); err != nil {
 				c.String(http.StatusInternalServerError,
-					fmt.Sprintf("Error reading level ids]: %q", err))
+					fmt.Sprintf("[Error reading level ids]: %q", err))
 				return
 			}
 			levelsIds = append(levelsIds, levelId)
@@ -105,7 +105,7 @@ func getLevelByID(db *sql.DB) gin.HandlerFunc {
 
 func getLevels(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels")
+		rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels ORDER BY id")
 		if err != nil {
 			c.String(http.StatusInternalServerError,
 				fmt.Sprintf("Error reading levels]: %q", err))
@@ -239,7 +239,7 @@ func populateLevels(db *sql.DB) {
 }
 
 func (pl *player) refreshWithLevels(db *sql.DB, levels []level) error {
-	rows, err := db.Query("SELECT level_id, attempts, failures, completed FROM level_status WHERE player_id = $1", pl.ID)
+	rows, err := db.Query("SELECT level_id, attempts, failures, completed FROM level_status WHERE player_id = $1 ORDER BY level_id", pl.ID)
 	if err != nil {
 		return err
 	}
