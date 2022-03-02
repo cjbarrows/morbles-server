@@ -71,12 +71,41 @@ func getLevelsIDs(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
+func getNextLevelID(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.Atoi(c.Param("id"))
+		if err == nil {
+			rows, err := db.Query("SELECT id FROM levels WHERE ID > $1 ORDER BY id LIMIT 1", id)
+			if err != nil {
+				c.String(http.StatusInternalServerError,
+					fmt.Sprintf("[Error reading next level id]: %q", err))
+				return
+			}
+
+			defer rows.Close()
+			ok := rows.Next()
+
+			if ok {
+				var levelId uint16
+				if err := rows.Scan(&levelId); err != nil {
+					c.String(http.StatusInternalServerError,
+						fmt.Sprintf("[Error reading next level id]: %q", err))
+					return
+				}
+				c.JSON(http.StatusOK, levelId)
+				return
+			}
+		}
+
+		c.JSON(http.StatusNotFound, gin.H{"message": "next level not found"})
+	}
+}
+
 func getLevelByID(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.Atoi(c.Param("id"))
 
 		if err == nil {
-
 			rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels WHERE id = $1", id)
 			if err != nil {
 				c.String(http.StatusInternalServerError,
@@ -184,7 +213,7 @@ func getNextPlayerId(db *sql.DB) (uint16, error) {
 	return 0, errors.New("error getting next player id")
 }
 
-func getNextLevelId(slice []level) uint16 {
+func getNewLevelId(slice []level) uint16 {
 	var nextid uint16 = 0
 	for _, item := range slice {
 		if item.ID > nextid {
@@ -338,7 +367,7 @@ func postLevel(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var newLevel level
 		if err := c.BindJSON(&newLevel); err == nil {
-			newLevel.ID = getNextLevelId(levels)
+			newLevel.ID = getNewLevelId(levels)
 
 			if _, err := db.Exec("INSERT INTO levels(id, name, hint, rows, columns, starting_balls, ending_balls, map) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 				newLevel.ID, newLevel.Name, newLevel.Hint, newLevel.Rows, newLevel.Columns, newLevel.StartingBalls, newLevel.EndingBalls, newLevel.MapData); err != nil {
@@ -533,6 +562,7 @@ func main() {
 		private.GET("/levels", getLevels(db))
 		private.GET("/levels/ids", getLevelsIDs(db))
 		private.GET("/levels/:id", getLevelByID(db))
+		private.GET("/levels/next/:id", getNextLevelID(db))
 		private.POST("/levels", postLevel(db))
 		private.PUT("/levels/:id", putLevelByID(db))
 
