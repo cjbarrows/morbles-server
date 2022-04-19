@@ -26,13 +26,15 @@ type level struct {
 	StartingBalls string
 	EndingBalls   string
 	MapData       string
+	IsOfficial    bool
 }
 
 type levelStatus struct {
-	LevelID   uint16
-	Attempts  uint16
-	Failures  uint16
-	Completed bool
+	LevelID    uint16
+	Attempts   uint16
+	Failures   uint16
+	Completed  bool
+	IsOfficial bool
 }
 
 type player struct {
@@ -106,7 +108,7 @@ func getLevelByID(db *sql.DB) gin.HandlerFunc {
 		id, err := strconv.Atoi(c.Param("id"))
 
 		if err == nil {
-			rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels WHERE id = $1", id)
+			rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map, is_official FROM levels WHERE id = $1", id)
 			if err != nil {
 				c.String(http.StatusInternalServerError,
 					fmt.Sprintf("Error reading levels by id]: %q", err))
@@ -118,7 +120,7 @@ func getLevelByID(db *sql.DB) gin.HandlerFunc {
 
 			if ok {
 				var lv level
-				if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData); err != nil {
+				if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData, &lv.IsOfficial); err != nil {
 					c.String(http.StatusInternalServerError,
 						fmt.Sprintf("Error scanning level: %q", err))
 					return
@@ -134,7 +136,7 @@ func getLevelByID(db *sql.DB) gin.HandlerFunc {
 
 func getLevels(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map FROM levels ORDER BY id")
+		rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map, is_official FROM levels ORDER BY id")
 		if err != nil {
 			c.String(http.StatusInternalServerError,
 				fmt.Sprintf("Error reading levels]: %q", err))
@@ -147,7 +149,7 @@ func getLevels(db *sql.DB) gin.HandlerFunc {
 
 		for rows.Next() {
 			var lv level
-			if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData); err != nil {
+			if err := rows.Scan(&lv.ID, &lv.Name, &lv.Hint, &lv.Rows, &lv.Columns, &lv.StartingBalls, &lv.EndingBalls, &lv.MapData, &lv.IsOfficial); err != nil {
 				c.String(http.StatusInternalServerError,
 					fmt.Sprintf("Error scanning level: %q", err))
 				return
@@ -236,10 +238,19 @@ func addPlayer(db *sql.DB, name string) error {
 	return nil
 }
 
+func getOfficialStatus(levels []level, id uint16) bool {
+	for _, lv := range levels {
+		if lv.ID == id {
+			return lv.IsOfficial
+		}
+	}
+	return false
+}
+
 func populateLevels(db *sql.DB) {
 	var newLevels []level
 
-	rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map from levels")
+	rows, err := db.Query("SELECT id, name, hint, rows, columns, starting_balls, ending_balls, map, is_official from levels")
 	if err != nil {
 		fmt.Println("Error loading levels ", err)
 		return
@@ -256,12 +267,13 @@ func populateLevels(db *sql.DB) {
 		var startingBalls string
 		var endingBalls string
 		var mapData string
+		var isOfficial bool
 
-		if err := rows.Scan(&id, &name, &hint, &numRows, &numColumns, &startingBalls, &endingBalls, &mapData); err != nil {
+		if err := rows.Scan(&id, &name, &hint, &numRows, &numColumns, &startingBalls, &endingBalls, &mapData, &isOfficial); err != nil {
 			fmt.Println("Error reading level ", err)
 			return
 		}
-		newLevels = append(newLevels, level{id, name, hint, numRows, numColumns, startingBalls, endingBalls, mapData})
+		newLevels = append(newLevels, level{id, name, hint, numRows, numColumns, startingBalls, endingBalls, mapData, isOfficial})
 	}
 
 	levels = newLevels
@@ -283,7 +295,8 @@ func (pl *player) refreshWithLevels(db *sql.DB, levels []level) error {
 		if err := rows.Scan(&levelId, &attempts, &failures, &completed); err != nil {
 			return err
 		}
-		pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{levelId, attempts, failures, completed})
+		var isOfficial = getOfficialStatus(levels, levelId)
+		pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{levelId, attempts, failures, completed, isOfficial})
 	}
 
 	for _, lv := range levels {
@@ -295,7 +308,7 @@ func (pl *player) refreshWithLevels(db *sql.DB, levels []level) error {
 			}
 		}
 		if !found {
-			pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{lv.ID, 0, 0, false})
+			pl.LevelStatuses = append(pl.LevelStatuses, levelStatus{lv.ID, 0, 0, false, false})
 		}
 	}
 
@@ -369,8 +382,8 @@ func postLevel(db *sql.DB) gin.HandlerFunc {
 		if err := c.BindJSON(&newLevel); err == nil {
 			newLevel.ID = getNewLevelId(levels)
 
-			if _, err := db.Exec("INSERT INTO levels(id, name, hint, rows, columns, starting_balls, ending_balls, map) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-				newLevel.ID, newLevel.Name, newLevel.Hint, newLevel.Rows, newLevel.Columns, newLevel.StartingBalls, newLevel.EndingBalls, newLevel.MapData); err != nil {
+			if _, err := db.Exec("INSERT INTO levels(id, name, hint, rows, columns, starting_balls, ending_balls, map, is_official) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+				newLevel.ID, newLevel.Name, newLevel.Hint, newLevel.Rows, newLevel.Columns, newLevel.StartingBalls, newLevel.EndingBalls, newLevel.MapData, newLevel.IsOfficial); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error inserting level %s", err)})
 				return
 			}
@@ -393,8 +406,8 @@ func putLevelByID(db *sql.DB) gin.HandlerFunc {
 		if err == nil {
 			var lv level
 			if err := c.BindJSON(&lv); err == nil {
-				_, err := db.Exec("UPDATE levels SET (name, hint, rows, columns, starting_balls, ending_balls, map) = ($2, $3, $4, $5, $6, $7, $8) WHERE id = $1",
-					lv.ID, lv.Name, lv.Hint, lv.Rows, lv.Columns, lv.StartingBalls, lv.EndingBalls, lv.MapData)
+				_, err := db.Exec("UPDATE levels SET (name, hint, rows, columns, starting_balls, ending_balls, map, is_official) = ($2, $3, $4, $5, $6, $7, $8, $9) WHERE id = $1",
+					lv.ID, lv.Name, lv.Hint, lv.Rows, lv.Columns, lv.StartingBalls, lv.EndingBalls, lv.MapData, lv.IsOfficial)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("error updating level %s", err)})
 					return

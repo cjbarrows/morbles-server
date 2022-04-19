@@ -12,7 +12,12 @@
 [x] track failures
 [x] persist players and levels in Postgres, Redis, or other store
     - Postgres
+[ ] added isOfficial to Level and LevelStatus
 
 ## ENVIRONMENT VARIABLES
 
 - CLIENT_DOMAIN   ".herokuapp.com" or ""
+
+## LAUNCHING
+
+go run .
