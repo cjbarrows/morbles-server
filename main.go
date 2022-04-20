@@ -529,6 +529,7 @@ func status(c *gin.Context) {
 func AuthRequired(c *gin.Context) {
 	session := sessions.Default(c)
 	user := session.Get("user")
+	log.Println("AuthRequired user = ", user)
 	if user == nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
